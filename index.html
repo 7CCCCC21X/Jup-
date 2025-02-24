@@ -23,6 +23,12 @@
             text-align: center;
             color: #333;
         }
+        .info {
+            text-align: center;
+            color: red;
+            font-size: 14px;
+            margin-top: 10px;
+        }
         input, textarea {
             width: 100%;
             padding: 10px;
@@ -65,6 +71,12 @@
 <body>
     <div class="container">
         <h1>批量查询PENDING状态</h1>
+        
+        <!-- 提示信息 -->
+        <div class="info">
+            如果出现查询失败，请更换IP并再次点击查询按钮。
+        </div>
+        
         <label for="wallets">请输入钱包地址（每行一个地址）:</label>
         <textarea id="wallets" rows="5" placeholder="输入钱包地址，多个地址换行"></textarea><br/>
         <button onclick="batchQuery()">查询</button>
@@ -102,14 +114,14 @@
             let walletNumber = 1; // 钱包编号，从1开始
 
             for (let address of addresses) {
-                const { status, txHash } = await checkPendingStatus(address);
+                const { status, txHashes, error } = await checkPendingStatus(address);
                 const resultRow = document.createElement('tr');
                 resultRow.innerHTML = `
                     <td><input type="checkbox"></td>
                     <td>${walletNumber}</td>
                     <td>${address}</td>
                     <td>${status ? '有PENDING' : '无PENDING'}</td>
-                    <td>${status ? `<a href="https://scan.li.fi/tx/${txHash}" target="_blank">${txHash}</a>` : '无'}</td>
+                    <td>${status ? txHashes.map(txHash => `<a href="https://scan.li.fi/tx/${txHash}" target="_blank">${txHash}</a>`).join(', ') : (error ? '查询失败' : '无')}</td>
                 `;
                 resultsElement.appendChild(resultRow);
                 walletNumber++;
@@ -121,15 +133,22 @@
             
             try {
                 const response = await fetch(url);
+
+                if (response.status === 429) {
+                    // 如果响应状态是429（请求过于频繁）
+                    return { status: false, txHashes: [], error: '请求过于频繁，请稍后再试' };
+                }
+
                 const data = await response.json();
 
                 // 返回的 JSON 数据结构应当是包含 "transfers" 数组
-                // 遍历所有转账，检查每个转账的状态是否为 "PENDING"
-                const pendingTransfer = data.transfers.find(transfer => transfer.status === 'PENDING');
-                return pendingTransfer ? { status: true, txHash: pendingTransfer.sending.txHash } : { status: false };
+                const pendingTransfers = data.transfers.filter(transfer => transfer.status === 'PENDING');
+                const txHashes = pendingTransfers.map(transfer => transfer.sending.txHash);  // 获取所有PENDING交易的哈希
+
+                return pendingTransfers.length > 0 ? { status: true, txHashes: txHashes, error: null } : { status: false, txHashes: [], error: null };
             } catch (error) {
                 console.error('Error fetching data:', error);
-                return { status: false }; // 如果出错，返回 false
+                return { status: false, txHashes: [], error: '查询失败，请稍后再试' }; // 如果出错，返回错误信息
             }
         }
     </script>
